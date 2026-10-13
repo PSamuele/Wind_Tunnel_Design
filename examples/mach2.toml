@@ -1,0 +1,19 @@
+# Optional TOML input format (the Python file inputs.py is the main way).
+# Only the values that differ from the defaults are needed here.
+#     python run.py examples/mach2.toml
+
+[design]
+mach = 2.0
+test_section_diameter = 0.15   # m
+
+[model]
+frontal_area = 0.0015          # m^2
+shape = "cone"
+half_angle_deg = 10.0
+
+[tank]
+volume = 2.0                   # m^3
+pressure = 20.0e5              # Pa
+
+[optimisation]
+max_total_length = 3.2         # m
