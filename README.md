@@ -1,55 +1,71 @@
-# Wind Tunnel Design — open-circuit supersonic blowdown
+# Wind Tunnel Design
 
-Python tool that sizes an **axisymmetric open-circuit blowdown wind tunnel**
-(pressurised tank → regulator → settling chamber → contraction → MOC nozzle →
-test section → second throat → subsonic diffuser → atmosphere) and analyses it
-in **steady state** and in **transient** conditions, with a dedicated study of
-the **second throat**.
+A Python tool for designing supersonic blowdown wind tunnels.
 
-Inputs are declared in a Python file (`inputs.py`); results go to one folder
-per distinct input, organised by topic: CSV tables with units, SVG figures,
-ParaView files, a readable summary and an HTML/PDF report.
+You give it a target Mach number, a test-section size and an air tank. It sizes every part of the tunnel, shapes the nozzle with the method of characteristics, finds the pressures needed to start and run it, simulates the start-up and the whole run, and saves everything in one folder: tables, figures, ParaView files and a PDF report.
 
-## Installation
+## The tunnel
 
-Requires Python 3.11 or newer (the standard-library `tomllib` is used).
+A blowdown tunnel stores air in a high-pressure tank and releases it through the test section into the atmosphere. On its way out, the air goes through:
+
+```
+tank → regulator → settling chamber → contraction → nozzle → test section → second throat → diffuser → atmosphere
+```
+
+The tunnel is axisymmetric (round cross-section) and open-circuit. It is meant for test-section Mach numbers between 1.5 and 4; values from 1.2 to 5 are accepted.
+
+## Example
+
+The default inputs describe a Mach 2 tunnel with a 150 mm test section, a 2 m³ tank at 20 bar and a 10° cone model. A full run gives, among many other results:
+
+| Result | Value |
+|---|---|
+| Nozzle throat diameter | 115.5 mm |
+| Total tunnel length | 2.67 m |
+| Pressure ratio needed to start (p0/p_a) | 1.49 |
+| Pressure ratio needed to keep running (p0/p_a) | 1.41 |
+| Mass flow while running | 3.73 kg/s |
+| Run time | 9.6 s |
+| Run time with a variable second throat | 11.4 s |
+
+## Getting started
+
+You need Python 3.11 or newer.
 
 ```bash
 git clone https://github.com/PSamuele/Wind_Tunnel_Design.git
 cd Wind_Tunnel_Design
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e .            # numpy, scipy, matplotlib
-pip install -e .[dev]       # + pytest, for the tests
+python -m venv .venv
+source .venv/bin/activate        # on Windows: .venv\Scripts\activate
+pip install -e .                 # installs numpy, scipy and matplotlib
 ```
 
-## Quick start
+Then run it:
 
 ```bash
-python run.py                 # inputs from inputs.py
-python run.py --quick         # coarse resolution, fast check (about 2 minutes)
-python run.py examples/mach3.py
+python run.py
 ```
 
-`run.py` also works without installing the package (it adds `src/` to the
-path; numpy, scipy and matplotlib must be installed). Options:
+When it finishes, the console prints a summary and the path of the results folder. A full run takes about 4 to 7 minutes, mostly spent on the transient simulations, the second-throat studies and the optimisation. For a fast check at coarse resolution (about 2 minutes):
 
-| Option | Effect |
+```bash
+python run.py --quick
+```
+
+`run.py` also works without installing the package, as long as numpy, scipy and matplotlib are available. After `pip install -e .` the same program can also be started with the `windtunnel` command.
+
+| Option | What it does |
 |---|---|
-| `--results-root DIR` | root folder of the results (default `results`) |
-| `--quick` | coarse resolution for a fast check |
-| `--no-transient` | skip the Euler transients |
+| `--quick` | coarse resolution, for a fast check |
+| `--results-root DIR` | save results under `DIR` instead of `results` |
+| `--no-transient` | skip the transient (Euler) simulations |
 | `--no-second-throat` | skip the second-throat studies |
 | `--no-optimisation` | skip the optimisation |
-| `--no-sweep` | skip the Mach trade study |
+| `--no-sweep` | skip the Mach number trade study |
 
-A full run takes 4–7 minutes, mostly in the Euler transients, the
-second-throat studies and the optimisation. At the end the console prints
-`summary.txt` and the path of the results folder.
+## Setting your own inputs
 
-## Inputs
-
-All parameters are declared in [`inputs.py`](inputs.py), grouped by component,
-each with its unit and meaning:
+All inputs are in [`inputs.py`](inputs.py), grouped by tunnel component. Every parameter comes with its unit and a short note:
 
 ```python
 SPEC = TunnelSpec(
@@ -67,212 +83,176 @@ SPEC = TunnelSpec(
 )
 ```
 
-Edit the values and run `python run.py`. To keep several cases, copy the file
-(see `examples/mach3.py`) and pass it to `run.py`. Every run also writes
-`inputs_used.py` into its results folder, so any run can be repeated exactly.
-A TOML file with the same sections and keys is accepted as an alternative
-(`examples/mach2.toml`, only the values that differ from the defaults).
-Unknown parameter names are rejected.
+Change the values, save the file and run `python run.py`. To keep several designs side by side, make a copy of the file and pass it to the launcher:
 
-## What it computes
+```bash
+python run.py examples/mach3.py
+```
 
-| Area | Content |
-|---|---|
-| Sizing | throat, settling chamber, test section, second throat, diffuser; mass flow; test-section static state, unit Reynolds number, test rhombus length |
-| Nozzle | axisymmetric contour by the method of characteristics (source-flow kernel + prescribed centreline Mach), uniform exit flow |
-| Steady quasi-1D flow | Mach, static and total pressure, p/p0, temperature, velocity, density along the axis, for the starting and running conditions |
-| Losses | honeycomb + screens, Fanno friction in constant-area ducts, **model drag**, oblique shocks in the convergent (option), normal shock, subsonic diffuser, exhaust dynamic pressure |
-| Shock analysis | starting and minimum running pressure ratios, start/unstart hysteresis map, Kantrowitz blockage limit, oblique/conical (Taylor-Maccoll) shock on the model |
-| **Second throat** | two-throat sonic compatibility and regimes R0–R3, variable geometry (open to start, closed to run), sensitivity to the throat area, ramp (oblique-shock) convergent, recommendations |
-| Transient, Euler | unsteady quasi-1D Euler solver (HLLC, MUSCL, SSP-RK3): start, running, unstart; fixed throat and **variable throat with moving walls** |
-| Transient, run | tank depletion with regulator, run time, T0 and Reynolds drift, start/unstart hysteresis, liquefaction over time |
-| Optimisation | second-throat margin and length, diffuser half-angle and area ratio, minimising the running pressure ratio under length and tank-pressure constraints |
-| Trade study | pressure ratios, run time, mass flow, liquefaction limit vs Mach number |
+A few things worth knowing:
 
-Mach range: 1.5–4 (accepted 1.2–5).
+* every run saves its inputs as `inputs_used.py` in the results folder, so any run can be repeated exactly;
+* a misspelled parameter name stops the run with an error, so a typo is never silently ignored;
+* TOML works too: see [`examples/mach2.toml`](examples/mach2.toml), which uses the same sections and names and only lists the values that differ from the defaults.
 
-## Second throat
+## What you get
 
-**Two sonic throats in series.** Through a sonic throat m = Γ p0 A* / √(R T0).
-Between the nozzle throat (1) and the second throat (2) T0 is constant but p0
-falls (friction, model drag, shocks), so both can be sonic only if
-A*₂/A*₁ = p0₁/p0₂ > 1. With **equal areas the second throat chokes first and
-the nozzle throat cannot be sonic**. The tool computes three critical areas
-(friction and model drag included):
-
-| Area | Meaning |
-|---|---|
-| A_sub | below it the second throat controls the mass flow: tunnel subsonic (R0) |
-| A_run | smallest area through which the started flow passes the whole second throat (friction inside the throat included): running limit; below it the normal shock stays locked in the nozzle/test section (R1) |
-| A_start | smallest area that swallows the starting shock: below it fixed walls cannot start (R2: variable walls needed); above it the tunnel starts with fixed walls (R3) |
-
-It then reports, in `05_second_throat/`:
-
-* **regime of the design and of equal areas**, with the reasons and
-  recommendations (`summary.txt`, report);
-* **variable second throat**: open to the fixed design area for the start,
-  closed to A_run (1 + `second_throat.run_margin`) for the run. Gain in
-  running pressure ratio, mass flow and run time, checked with an Euler
-  transient in which the walls move (energy source −p ∂A/∂t);
-* **sensitivity**: regime, PR_start, PR_run, throat Mach, locked-shock Mach
-  and run time versus A_d2/A_t;
-* **ramp convergent**: planar estimate of the oblique shock pair at the
-  convergent entrance, compared with the isentropic convergent; it detects
-  Mach reflection (a convergent too steep for the entrance Mach, e.g. when
-  movable walls are closed over a short length) and gives the largest
-  half-angle with a regular reflection.
-
-**Model drag.** The drag D = Cd q A_m is a momentum sink; for the quasi-1D
-total-pressure balance it equals a Fanno step with f L/D = Cd A_m/A_ts at the
-model station (fully mixed-out loss). Cd is an input or, with `cd = 0`,
-forebody pressure from cone/wedge shock theory plus base pressure
-Cp_base = −1/M² (rough rule, about 70 % of the vacuum limit), skin friction
-neglected.
-
-## Results folder
+Each run gets its own folder inside `results/`:
 
 ```
 results/M2.00_D150mm_T0-288K_pa101kPa_Vt2.00m3_pt20.0bar_<hash>/
-├── README.txt              index: every file with a one-line description
-├── summary.txt             key results, grouped, with units
-├── summary.json            same content, machine-readable
-├── inputs_used.py          all inputs of this run (re-runnable)
-├── manifest.json           input SHA-256, timestamp, version, file list
-├── 01_geometry/            wall profile (CSV for CAD), meridian and 3-D views
-├── 02_steady_flow/         axial distributions (start, running), loss budget
-├── 03_shock_analysis/      hysteresis map, start-up sequence, model shock
-├── 04_nozzle_moc/          wall contour, characteristic net, Mach field
+├── README.txt              list of every file, one line each
+├── summary.txt             key results with units
+├── summary.json            the same, for scripts
+├── inputs_used.py          the inputs of this run
+├── manifest.json           input hash, date, version, file list
+├── 01_geometry/            wall profile (CSV, ready for CAD), side and 3D views
+├── 02_steady_flow/         flow along the axis (start and running), loss budget
+├── 03_shock_analysis/      start/unstart map, start-up sequence, shock on the model
+├── 04_nozzle_moc/          nozzle contour, characteristic net, Mach field
 ├── 05_second_throat/       critical areas, regimes, variable geometry, sensitivity, ramp
-├── 06_transient_euler/     fixed and variable throat start-up/unstart
-├── 07_transient_blowdown/  tank, regulator, run time
-├── 08_optimisation/        variables, history, optimised profile
-├── 09_mach_sweep/          trade study
-├── paraview/               steady/, nozzle/, transient_fixed_throat/, transient_variable_throat/
-└── report/                 report.html (figures inline), report.pdf
+├── 06_transient_euler/     start-up and unstart, fixed and variable throat
+├── 07_transient_blowdown/  tank pressure, regulator, run time
+├── 08_optimisation/        design variables, history, optimised profile
+├── 09_mach_sweep/          trade study over Mach number
+├── paraview/               files to open in ParaView
+└── report/                 report.html and report.pdf
 ```
 
-The folder name is built from the problem data plus the first 8 hex digits of
-the SHA-256 of the full canonical input: the same input always maps to the
-same folder (a re-run replaces it), any parameter change gives a new folder.
-CSV headers carry units in brackets, e.g. `x [m]`, `static pressure [Pa]`.
-`results/` is ignored by git.
+The best places to start are `summary.txt` and `report/report.pdf`.
 
-## ParaView
+The folder name holds the main design data plus the first 8 characters of a hash of all the inputs. The same inputs always go to the same folder (a new run replaces it), and any change creates a new folder. CSV column headers include units, for example `x [m]` or `static pressure [Pa]`. The `results/` folder is not tracked by git.
+
+## What it calculates
+
+| Topic | Details |
+|---|---|
+| Sizing | nozzle throat, settling chamber, test section, second throat and diffuser; mass flow; test-section conditions, unit Reynolds number, test rhombus length |
+| Nozzle | axisymmetric contour from the method of characteristics, with uniform flow at the exit |
+| Steady flow | Mach number, pressures, temperature, velocity and density along the tunnel axis, for start and running conditions |
+| Losses | honeycomb and screens, wall friction, model drag, optional oblique shocks in the second-throat convergent, normal shock, subsonic diffuser, exhaust |
+| Shocks | pressure ratios to start and to run, start/unstart hysteresis, Kantrowitz blockage limit, shock on the model (cone or wedge) |
+| Second throat | throat compatibility and operating regimes, variable geometry, sensitivity to the throat area, ramp convergent (see below) |
+| Start-up transient | quasi-1D unsteady Euler solver: start, running and unstart, with a fixed throat and with moving throat walls |
+| Blowdown run | tank emptying through the regulator, run time, drift of stagnation temperature and Reynolds number, risk of air liquefaction |
+| Optimisation | second-throat margin and length, diffuser angle and area ratio, chosen to lower the running pressure ratio within length and tank-pressure limits |
+| Trade study | pressure ratios, run time, mass flow and liquefaction limit across a range of Mach numbers |
+
+## The second throat
+
+After the test section the flow passes through a second narrowing before the diffuser. Its size decides whether the tunnel can start at all and how much pressure it needs once it is running, so the tool studies it in detail.
+
+The same mass flow passes through both throats, but total pressure drops between them because of friction, model drag and shocks. For both throats to be sonic, the second one must be larger than the first by the ratio of the total pressures (A₂/A₁ = p0₁/p0₂). If the two are the same size, the second throat chokes first, the nozzle throat never reaches sonic speed, and the test section stays subsonic.
+
+The tool works out three critical areas for the second throat, with friction and model drag included:
+
+| Area | Meaning |
+|---|---|
+| A_sub | below this, the second throat limits the mass flow and the tunnel stays subsonic |
+| A_run | the smallest area the supersonic flow can pass through once the tunnel is running |
+| A_start | the smallest area that lets the starting shock through with fixed walls |
+
+These areas split the possible designs into four regimes:
+
+| Regime | Second-throat area | What happens |
+|---|---|---|
+| R0 | below A_sub | the tunnel stays subsonic |
+| R1 | between A_sub and A_run | the normal shock stays stuck in the nozzle or test section |
+| R2 | between A_run and A_start | the tunnel can run but cannot start with fixed walls; movable walls are needed |
+| R3 | above A_start | the tunnel starts and runs with fixed walls |
+
+The results in `05_second_throat/` cover:
+
+* the regime of your design and of the equal-area case, with recommendations (also in `summary.txt` and the report);
+* a variable second throat: open at the design area to start, then closed to just above A_run for the run. It reports how much this lowers the running pressure ratio and the mass flow and how much longer the run lasts, and checks the result with a transient simulation in which the walls actually move;
+* a sensitivity study: regime, pressure ratios, throat Mach number and run time as the throat area changes;
+* a ramp convergent check: a planar estimate of the oblique shocks at the convergent entrance. It warns when the convergent is too steep and the shocks would form a Mach reflection (for example when movable walls close over a short length) and gives the largest safe half-angle.
+
+### Model drag
+
+The model's drag, D = Cd q A_m, is treated as a total-pressure loss equal to a friction step with f L/D = Cd A_m/A_ts at the model position. You can give Cd yourself, or set `cd = 0` to have it estimated from cone or wedge shock theory plus a base-pressure rule (Cp_base = −1/M², roughly 70 % of the vacuum limit). Skin friction on the model is not included.
+
+## Viewing results in ParaView
 
 | File | Content |
 |---|---|
-| `steady/steady_running.vts` | whole tunnel revolved around the axis, running condition; inside the nozzle the MOC Mach field |
-| `steady/steady_starting.vts` | starting condition |
-| `steady/steady_running_closed_throat.vts` | running condition with the variable throat closed |
-| `nozzle/moc_nozzle.vts`, `nozzle/moc_characteristics.vtp` | MOC field; C+ and C− lines in the meridian plane |
-| `transient_fixed_throat/frame.pvd` | Euler time series, fixed throat |
-| `transient_variable_throat/frame.pvd` | Euler time series, the walls of the second throat move |
+| `steady/steady_running.vts` | the whole tunnel, revolved around its axis, in running conditions (MOC Mach field inside the nozzle) |
+| `steady/steady_starting.vts` | the same, in starting conditions |
+| `steady/steady_running_closed_throat.vts` | running conditions with the variable throat closed |
+| `nozzle/moc_nozzle.vts`, `nozzle/moc_characteristics.vtp` | nozzle Mach field and the characteristic lines |
+| `transient_fixed_throat/frame.pvd` | start-up animation, fixed throat |
+| `transient_variable_throat/frame.pvd` | start-up animation, moving throat walls |
 
-Open a `.pvd` and press Play. Arrays: `mach`, `pressure_Pa`, `temperature_K`,
-`density_kg_m3`, `total_pressure_Pa`, `p_over_p0_supply`, `velocity`. Files
-are VTK XML, zlib-compressed by default (`output.vtk_compress`).
+Open a `.pvd` file and press Play. Available fields: `mach`, `pressure_Pa`, `temperature_K`, `density_kg_m3`, `total_pressure_Pa`, `p_over_p0_supply` and `velocity`. The files are compressed VTK XML; compression can be turned off with `output.vtk_compress`.
 
-## Method in short
+## How it works
 
-**Sizing.** A* = A_ts/(A/A*)(M). The starting shock must sweep from the throat
-to the end of the test section: the starting ratio is the largest p0/p_a over
-those positions. Running: supersonic flow through the second throat, normal
-shock in the diffuser where the exit static pressure equals p_a; PR_run is the
-minimum over the admissible shock positions.
+**Sizing.** The nozzle throat comes from the isentropic area ratio, A* = A_ts / (A/A*)(M). To start, the starting shock has to travel from the nozzle throat to the end of the test section; the starting pressure ratio is the highest p0/p_a needed along that path. In running conditions the flow stays supersonic through the second throat and a normal shock sits in the diffuser, where the exit pressure matches ambient; the running pressure ratio is the lowest value over the possible shock positions.
 
-**Quasi-1D steady solver.** Isentropic area change on the current branch,
-Fanno flow in constant-area ducts (Darcy factor from the Haaland formula at
-the local Reynolds number), K q losses, model drag, shock pair (option),
-normal shocks; losses carried through A*_local = A* p0_ref/p0_local.
+**Steady flow.** Quasi-1D: isentropic flow through area changes, Fanno flow in constant-area ducts (Haaland friction factor at the local Reynolds number), K·q losses for devices, model drag, optional oblique shock pair, and normal shocks. Losses are carried through the local critical area, A*_local = A* p0_ref / p0_local.
 
-**MOC nozzle.** Source-flow kernel up to a wall point on a cone; the
-source-flow C− through it is integrated analytically to the axis and is the
-initial line of the lattice. Downstream the centreline Mach is a quintic that
-matches M, M′, M″ of the source flow and reaches the exit Mach with zero slope
-and curvature. Predictor-corrector unit process with the axisymmetric
-compatibility relations; the wall is the stream surface carrying the throat
-mass flow.
+**Nozzle.** Near the throat the flow is modelled as source flow, up to a wall point on a cone. The characteristic through that point, integrated analytically to the axis, is the starting line. Downstream, the centreline Mach number follows a fifth-degree polynomial that matches the source flow and reaches the exit Mach number with zero slope and zero curvature. The characteristic net is solved with a predictor-corrector scheme, and the wall is the streamline that carries the throat mass flow.
 
-**Euler transient.** Conservative quasi-1D Euler with p ∂A/∂x source, wall
-friction in constant-area ducts, K q sinks for screens, model and diffuser;
-moving walls add −p ∂A/∂t to the energy equation. Stagnation inlet with the
-outgoing Riemann invariant, pressure outlet.
+**Start-up transient.** Conservative quasi-1D Euler equations (HLLC flux, MUSCL reconstruction, SSP-RK3 time stepping) with the pressure-area source term, wall friction in constant-area ducts and K·q losses for screens, model and diffuser. Moving walls add a −p ∂A/∂t term to the energy equation. The inlet is a stagnation condition, the outlet a fixed pressure.
 
-**Blowdown.** Polytropic tank, regulator holding p0, isenthalpic throttling
-(T0 = T_tank), choked mass flow, RK4 in time, start/unstart hysteresis.
+**Blowdown.** Polytropic tank, regulator holding p0 constant, isenthalpic throttling (T0 = T_tank), choked mass flow, RK4 time integration, with the start/unstart hysteresis taken into account.
 
-**Optimisation.** Sobol sampling of the design box followed by SLSQP.
+**Optimisation.** Sobol sampling over the design space, followed by SLSQP.
 
-## Repository layout
+## Tests
+
+```bash
+pip install -e .[dev]     # adds pytest
+pytest -q                 # 57 tests, about 1.5 minutes
+```
+
+The tests check, among other things:
+
+* isentropic, normal-shock, oblique-shock and Fanno values against NACA Report 1135;
+* the nozzle: the characteristic net reproduces the exact source flow (Mach error below 10⁻³), the exit area is within 0.5 % of A/A*, the wall angle changes monotonically, and the result converges with grid refinement;
+* the steady solver: mass is conserved to 10⁻⁶, the frictionless starting ratio matches the exact normal-shock value, and the hysteresis branches are correct;
+* the second throat: A_t < A_sub < A_run < A_start; equal areas fall in R0; the model loss equals the matching friction step; a model raises the starting and running ratios and A_start; movable walls lower the running ratio and extend the run; oblique shocks are compared with the normal shock and the reflection limit;
+* the Euler solver: Sod shock tube against the exact solution, a steady nozzle shock placed within two cells, tunnel start and unstart, and moving walls that compress still gas isentropically;
+* the blowdown mass balance, and a longer run with an isothermal tank than with an adiabatic one;
+* VTK files read back correctly (also with the VTK library, if installed);
+* results folders: same inputs give the same folder, any change gives a new one; Python and TOML inputs load the same way; a full end-to-end run produces the complete folder.
+
+## Limitations
+
+* Air is treated as a calorically perfect gas.
+* The flow model is quasi-1D: no boundary-layer correction of the nozzle contour, no shock/boundary-layer interaction, and a single normal shock instead of a shock train.
+* In the steady model, friction is only applied in constant-area ducts.
+* Model drag is treated as a fully mixed-out loss, and the automatic Cd is a rough estimate.
+* Oblique shocks in the convergent use a planar estimate; the Euler solver cannot represent them.
+* Liquefaction is checked with the Clausius-Clapeyron relation for nitrogen and oxygen, ignoring supersaturation, so the check is conservative.
+* The subsonic diffuser loss uses an incompressible correlation (Idelchik type). Check it against real data, or set your own value with `diffuser.K_override`.
+* Near the nozzle throat the flow is approximated by source flow, as in classic kernel methods; there is no transonic throat solution.
+
+## Project layout
 
 ```
 inputs.py                 input file: every parameter with unit and description
 run.py                    launcher: python run.py [input file] [options]
-examples/                 mach3.py (Python input), mach2.toml (optional TOML format)
+examples/                 mach3.py (Python input), mach2.toml (TOML input)
 src/windtunnel/
-  config.py               parameters (dataclasses with units), Python/TOML loading, hashing
+  config.py               parameters with units, Python/TOML loading, hashing
   gas.py                  perfect gas, Sutherland viscosity
   isentropic.py           isentropic relations, Prandtl-Meyer, mass flow
-  shocks.py               normal, oblique, conical (Taylor-Maccoll) shocks; shock in nozzle; shock pair
+  shocks.py               normal, oblique and conical (Taylor-Maccoll) shocks
   fanno.py                Fanno flow, friction factor
   moc.py                  axisymmetric method of characteristics (nozzle contour)
-  geometry.py             tunnel profile r(x); variable second throat
+  geometry.py             tunnel profile r(x), variable second throat
   steady.py               quasi-1D steady solver, starting/running ratios, hysteresis
-  design.py               sizing pipeline, model drag, loss budget
-  second_throat.py        sonic compatibility, regimes, variable geometry, sensitivity, ramp
-  euler1d.py              unsteady quasi-1D Euler solver, start-up scenarios, moving walls
+  design.py               sizing, model drag, loss budget
+  second_throat.py        throat compatibility, regimes, variable geometry, sensitivity, ramp
+  euler1d.py              unsteady quasi-1D Euler solver, start-up, moving walls
   blowdown.py             tank and regulator, run time
   optimize.py             optimisation and Mach trade study
   losses.py               device and diffuser losses, liquefaction
   plots.py                SVG figures
-  vtk_io.py, paraview.py  VTK XML writers and ParaView exports
+  vtk_io.py, paraview.py  VTK writers and ParaView exports
   report.py               HTML and PDF report
-  outputs.py              results folder, file index, summary text
+  outputs.py              results folder, file index, summary
   cli.py                  command line and run sequence
 tests/                    pytest suite
 ```
-
-## Development
-
-```bash
-pytest -q                 # 57 tests, about 1.5 minutes
-python run.py --quick     # end-to-end smoke run
-```
-
-## Validation (tests)
-
-`pytest -q` runs 57 tests (about 1.5 minutes), among them:
-
-* isentropic, normal-shock, oblique-shock and Fanno values against NACA 1135;
-* MOC: the lattice reproduces analytic source flow (|ΔM| < 10⁻³); exit area
-  within 0.5 % of A/A*; monotone wall turning; grid convergence;
-* steady solver: mass conservation to 10⁻⁶; frictionless starting ratio equal
-  to the analytic normal-shock value; hysteresis branches;
-* second throat: A_t < A_sub < A_run < A_start; equal areas fall in R0; the
-  model loss equals the Fanno step f L/D = Cd A_m/A_ts; the model raises
-  PR_start, PR_run and A_start; variable walls lower PR_run and lengthen the
-  run; oblique shock pair vs normal shock and reflection limit;
-* Euler: Sod shock tube against the exact Riemann solution; steady nozzle shock
-  within two cells; start and unstart in the tunnel; moving walls compress a
-  gas at rest isentropically (p ∝ ρ^γ, ρ ∝ 1/A);
-* blowdown mass balance; isothermal tank gives a longer run than adiabatic;
-* VTK files decoded back and read with the VTK library when installed;
-* run folders: same input → same folder, any change → new folder; Python and
-  TOML inputs round-trip; end-to-end run producing the full folder structure.
-
-## Limitations
-
-* Calorically perfect air.
-* Quasi-1D: no boundary-layer displacement correction of the nozzle contour,
-  no shock/boundary-layer interaction, no shock train (a single normal shock).
-* Steady model: friction only in constant-area ducts.
-* Model drag as a mixed-out momentum loss; automatic Cd is a rough estimate
-  (shock theory + base-pressure rule, no skin friction).
-* Oblique shocks in the convergent: planar shock-pair estimate; the Euler
-  solver cannot represent oblique shocks.
-* Liquefaction: Clausius-Clapeyron for the N2 and O2 partial pressures,
-  without supersaturation (conservative).
-* The subsonic diffuser correlation is incompressible (Idelchik-type); check
-  it against data, or set `diffuser.K_override`.
-* The throat region is approximated by the source flow, as in the classic
-  kernel methods; a transonic throat solution is not included.
