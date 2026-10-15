@@ -3,6 +3,7 @@
     python run.py                      # inputs from inputs.py
     python run.py examples/mach3.py    # another Python input file (or a .toml)
     python run.py --quick              # coarse resolution, fast check
+    python run.py --name mach2_test    # name the simulation without being asked
     python run.py --help               # all options
 """
 

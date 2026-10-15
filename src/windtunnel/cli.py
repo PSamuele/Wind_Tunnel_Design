@@ -10,6 +10,7 @@ import argparse
 import math
 import sys
 import time
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,7 +23,7 @@ from .config import load_spec, parameter_table
 from .design import design_tunnel
 from .euler1d import startup_transient, variable_throat_transient
 from .optimize import mach_sweep, optimise, optimised_spec
-from .outputs import RunFolder, TOPICS, fmt_value, split_label, summary_text
+from .outputs import RunFolder, TOPICS, clean_name, fmt_value, split_label, summary_text
 from .report import Section, write_html, write_pdf
 from .second_throat import REGIMES, study
 
@@ -59,14 +60,14 @@ def group_rows(group: dict):
 
 
 def run(spec, results_root="results", transient=True, optimisation=True, sweep=True, second_throat=True,
-        verbose=True, input_file=None):
+        verbose=True, input_file=None, name=None):
     t0 = time.time()
 
     def log(msg):
         if verbose:
             print(f"[{time.time() - t0:6.1f} s] {msg}", flush=True)
 
-    rf = RunFolder(spec, results_root, input_file)
+    rf = RunFolder(spec, results_root, input_file, name=name)
     out = spec.output
     figs = {}  # svg path -> Figure (re-used for the PDF)
 
@@ -302,11 +303,11 @@ def run(spec, results_root="results", transient=True, optimisation=True, sweep=T
     title = (f"Supersonic blowdown wind tunnel - M {spec.design.mach:g}, "
              f"D {spec.design.test_section_diameter * 1000:g} mm")
     text = summary_text(title, groups)
-    rf.write_text("summary.txt", f"Run id: {rf.id}\n\n" + text, "key results, readable")
+    rf.write_text("summary.txt", f"Simulation: {rf.name}\nRun id: {rf.id}\n\n" + text, "key results, readable")
     rf.write_json("summary.json", groups, "key results, machine-readable (same content)")
 
     sections = _sections(design, bd, tr, tr_vg, opt, sw_rows, st, F, sweep_bp, groups)
-    meta = [f"Run id: {rf.id}", f"Input file: {input_file or '-'}", f"windtunnel {__version__}"]
+    meta = [f"Simulation: {rf.name}", f"Run id: {rf.id}", f"Input file: {input_file or '-'}", f"windtunnel {__version__}"]
     kpis = _kpis(design, bd, st)
     write_html(rf.file("report", "report.html", "full report with figures"), title, meta, kpis, warnings, sections)
     if out.pdf:
@@ -458,11 +459,36 @@ def _fmt_rows(rows):
     return [{k: fmt_value(v) for k, v in r.items()} for r in rows]
 
 
+def ask_name(results_root, input_fn=input) -> str:
+    """Ask the user for the simulation name, which becomes the results folder name.
+
+    Spaces become underscores; only letters, digits and underscores are accepted.
+    If a folder with that name already exists, ask before replacing it.
+    """
+    while True:
+        raw = input_fn("What would you like to name this simulation? ")
+        try:
+            name = clean_name(raw)
+        except ValueError as e:
+            print(f"  Invalid name: {e}. Please try again.")
+            continue
+        if name != raw.strip():
+            print(f"  Saved as: {name}")
+        if (Path(results_root) / name).exists():
+            answer = input_fn(f"  A simulation called '{name}' already exists. Overwrite it? [y/N] ")
+            if answer.strip().lower() not in ("y", "yes"):
+                continue
+        return name
+
+
 def main(argv=None, default_config="inputs.py"):
     ap = argparse.ArgumentParser(prog="windtunnel", description="Supersonic blowdown wind tunnel sizing tool")
     ap.add_argument("config", nargs="?", default=default_config,
                     help=f"input file, Python (SPEC = TunnelSpec(...)) or TOML (default: {default_config})")
     ap.add_argument("--results-root", default="results", help="root folder of the outputs (default: results)")
+    ap.add_argument("--name", help="simulation name, used as the results folder name (letters, numbers and _; "
+                                   "spaces become _). Skips the question at start; an existing folder with "
+                                   "this name is replaced")
     ap.add_argument("--quick", action="store_true", help="reduced resolution for a fast check")
     ap.add_argument("--no-transient", action="store_true", help="skip the Euler transients")
     ap.add_argument("--no-optimisation", action="store_true", help="skip the optimisation")
@@ -470,10 +496,21 @@ def main(argv=None, default_config="inputs.py"):
     ap.add_argument("--no-second-throat", action="store_true", help="skip the second-throat studies")
     a = ap.parse_args(argv)
     spec = load_spec(a.config)
+    if a.name is not None:
+        try:
+            name = clean_name(a.name)
+        except ValueError as e:
+            ap.error(f"--name: {e}")
+    else:
+        try:
+            name = ask_name(a.results_root)
+        except (EOFError, KeyboardInterrupt):
+            print("\nNo simulation name given: run cancelled. Use --name NAME to run without the question.")
+            return 1
     if a.quick:
         apply_quick(spec)
     rf, design, groups = run(spec, a.results_root, not a.no_transient, not a.no_optimisation, not a.no_sweep,
-                             not a.no_second_throat, input_file=str(a.config))
+                             not a.no_second_throat, input_file=str(a.config), name=name)
     print()
     print((rf.root / "summary.txt").read_text())
     print(f"All results: {rf.root}   (index: README.txt, report: report/report.html)")

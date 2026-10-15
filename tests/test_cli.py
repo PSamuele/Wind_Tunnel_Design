@@ -1,7 +1,12 @@
 import json
+from pathlib import Path
 
-from windtunnel.cli import apply_quick, run
+import pytest
+
+from windtunnel.cli import apply_quick, ask_name, main, run
 from windtunnel.config import TunnelSpec
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_end_to_end_quick(tmp_path):
@@ -11,9 +16,9 @@ def test_end_to_end_quick(tmp_path):
     spec.second_throat.n_points = 4
     spec.output.pdf = False
     rf, design, groups = run(spec, tmp_path / "results", transient=True, optimisation=False, sweep=False,
-                             verbose=False)
+                             verbose=False, name="end_to_end")
     root = rf.root
-    assert root.parent == tmp_path / "results"
+    assert root == tmp_path / "results" / "end_to_end"
     for f in ("inputs_used.py", "README.txt", "summary.txt", "summary.json", "manifest.json",
               "01_geometry/geometry_profile.csv", "02_steady_flow/axial_running.csv",
               "02_steady_flow/losses_running.csv", "04_nozzle_moc/moc_nozzle.svg",
@@ -32,3 +37,29 @@ def test_end_to_end_quick(tmp_path):
     assert op["Starting ratio PR_start = p0/p_a [-]"] > op["Minimum running ratio PR_run = p0/p_a [-]"] > 1.0
     assert "Second throat (studies)" in groups and "Variable second throat" in groups
     assert "SECOND THROAT (STUDIES)" in (root / "summary.txt").read_text()
+    assert "Simulation: end_to_end" in (root / "summary.txt").read_text()
+
+
+def _answers(*values):
+    it = iter(values)
+    return lambda prompt="": next(it)
+
+
+def test_ask_name_retries_until_valid(tmp_path):
+    assert ask_name(tmp_path, _answers("", "bad/name", "Mach 2 run")) == "Mach_2_run"
+
+
+def test_ask_name_existing_folder(tmp_path):
+    (tmp_path / "old_run").mkdir()
+    # refuse to overwrite, then pick another name
+    assert ask_name(tmp_path, _answers("old_run", "n", "new_run")) == "new_run"
+    # empty answer means no
+    assert ask_name(tmp_path, _answers("old_run", "", "other")) == "other"
+    # accept to overwrite
+    assert ask_name(tmp_path, _answers("old_run", "y")) == "old_run"
+
+
+def test_main_rejects_bad_name_option(tmp_path):
+    with pytest.raises(SystemExit):
+        main([str(ROOT / "inputs.py"), "--name", "bad/name", "--results-root", str(tmp_path)])
+

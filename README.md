@@ -46,6 +46,14 @@ Then run it:
 python run.py
 ```
 
+The first thing it asks is a name for the simulation:
+
+```
+What would you like to name this simulation? mach2_baseline
+```
+
+The name becomes the results folder, here `results/mach2_baseline/`. Use letters, numbers and underscores; spaces are turned into underscores for you. If a simulation with that name already exists, you are asked whether to overwrite it.
+
 When it finishes, the console prints a summary and the path of the results folder. A full run takes about 4 to 7 minutes, mostly spent on the transient simulations, the second-throat studies and the optimisation. For a fast check at coarse resolution (about 2 minutes):
 
 ```bash
@@ -56,6 +64,7 @@ python run.py --quick
 
 | Option | What it does |
 |---|---|
+| `--name NAME` | name the simulation without being asked (an existing folder with that name is replaced) |
 | `--quick` | coarse resolution, for a fast check |
 | `--results-root DIR` | save results under `DIR` instead of `results` |
 | `--no-transient` | skip the transient (Euler) simulations |
@@ -100,12 +109,12 @@ A few things worth knowing:
 Each run gets its own folder inside `results/`:
 
 ```
-results/M2.00_D150mm_T0-288K_pa101kPa_Vt2.00m3_pt20.0bar_<hash>/
+results/<simulation name>/
 ├── README.txt              list of every file, one line each
 ├── summary.txt             key results with units
 ├── summary.json            the same, for scripts
 ├── inputs_used.py          the inputs of this run
-├── manifest.json           input hash, date, version, file list
+├── manifest.json           simulation name, run id, input hash, date, version, file list
 ├── 01_geometry/            wall profile (CSV, ready for CAD), side and 3D views
 ├── 02_steady_flow/         flow along the axis (start and running), loss budget
 ├── 03_shock_analysis/      start/unstart map, start-up sequence, shock on the model
@@ -121,7 +130,7 @@ results/M2.00_D150mm_T0-288K_pa101kPa_Vt2.00m3_pt20.0bar_<hash>/
 
 The best places to start are `summary.txt` and `report/report.pdf`.
 
-The folder name holds the main design data plus the first 8 characters of a hash of all the inputs. The same inputs always go to the same folder (a new run replaces it), and any change creates a new folder. CSV column headers include units, for example `x [m]` or `static pressure [Pa]`. The `results/` folder is not tracked by git.
+`summary.txt` and `manifest.json` also record a run id, made of the main design data plus the first 8 characters of a hash of all the inputs. Two runs with the same run id used exactly the same inputs, whatever name they were given. CSV column headers include units, for example `x [m]` or `static pressure [Pa]`. The `results/` folder is not tracked by git.
 
 ## What it calculates
 
@@ -203,7 +212,7 @@ Open a `.pvd` file and press Play. Available fields: `mach`, `pressure_Pa`, `tem
 
 ```bash
 pip install -e .[dev]     # adds pytest
-pytest -q                 # 57 tests, about 1.5 minutes
+pytest -q                 # 75 tests, about 1.5 minutes
 ```
 
 The tests check, among other things:
@@ -215,7 +224,7 @@ The tests check, among other things:
 * the Euler solver: Sod shock tube against the exact solution, a steady nozzle shock placed within two cells, tunnel start and unstart, and moving walls that compress still gas isentropically;
 * the blowdown mass balance, and a longer run with an isothermal tank than with an adiabatic one;
 * VTK files read back correctly (also with the VTK library, if installed);
-* results folders: same inputs give the same folder, any change gives a new one; Python and TOML inputs load the same way; a full end-to-end run produces the complete folder.
+* run ids: same inputs give the same id, any change gives a new one; simulation names are cleaned and checked, and the name question handles invalid names and existing folders; Python and TOML inputs load the same way; a full end-to-end run produces the complete folder.
 
 ## Limitations
 
