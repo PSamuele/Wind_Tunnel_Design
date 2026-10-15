@@ -5,8 +5,8 @@ Edit the values below and run:
     python run.py                  # uses this file
     python run.py --quick          # coarse resolution, fast check
 
-Every parameter is listed with its unit and meaning. Results go to
-results/<problem data>_<hash>/ (one folder per distinct input).
+Every parameter is listed with its unit and meaning. At the start you are
+asked for a simulation name; results go to results/<name>/.
 Other input files with the same layout can be passed to run.py, e.g.
     python run.py examples/mach3.py
 """

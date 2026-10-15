@@ -1,10 +1,11 @@
 """Run folders and readable result files.
 
-Every run writes into results/<readable-key>_<hash>/. The readable key lists
-the main design inputs; the hash (first 8 hex digits of SHA-256 of the
-canonical, defaults-applied input) makes the name unique: the same input
-always maps to the same folder, any change of any parameter gives a
-different one.
+Every run writes into results/<simulation name>/. The name is chosen by the
+user (letters, digits and underscores; see clean_name). Without a name, the
+folder falls back to the run id: a readable key with the main design inputs
+plus the first 8 hex digits of the SHA-256 of the canonical, defaults-applied
+input. The run id is also stored in summary.txt and manifest.json, so every
+run can be traced back to its exact input.
 
 Inside, one numbered folder per topic holds its CSV tables and SVG figures;
 README.txt indexes every file, summary.txt lists the key results.
@@ -51,6 +52,32 @@ def run_id(spec: TunnelSpec) -> str:
     return f"{key}_{input_hash(spec)[:8]}"
 
 
+NAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
+NAME_MAX_LENGTH = 100
+# Device names that Windows does not accept as folder names.
+_WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+                     *(f"LPT{i}" for i in range(1, 10))}
+
+
+def clean_name(raw: str) -> str:
+    """Simulation name -> folder name: spaces become underscores.
+
+    Only letters, digits and underscores are accepted; anything else raises
+    ValueError with a message meant for the user.
+    """
+    name = "_".join(raw.split())
+    if not name:
+        raise ValueError("the name cannot be empty")
+    if len(name) > NAME_MAX_LENGTH:
+        raise ValueError(f"the name is too long (at most {NAME_MAX_LENGTH} characters)")
+    if not NAME_PATTERN.match(name):
+        bad = sorted({c for c in name if not (c.isascii() and (c.isalnum() or c == "_"))})
+        raise ValueError(f"only letters, numbers and _ are allowed (not allowed: {' '.join(bad)})")
+    if name.upper() in _WINDOWS_RESERVED:
+        raise ValueError(f"'{name}' is a reserved name on Windows")
+    return name
+
+
 def split_label(key: str):
     """'Throat diameter [mm]' -> ('Throat diameter', 'mm')."""
     m = re.match(r"^(.*?)\s*\[([^\]]*)\]\s*$", key)
@@ -77,19 +104,20 @@ def fmt_value(v, digits=5):
 
 class RunFolder:
     def __init__(self, spec: TunnelSpec, results_root: str | Path = "results", input_file: str | None = None,
-                 clean=True):
+                 clean=True, name: str | None = None):
         self.spec = spec
         self.id = run_id(spec)
-        self.root = Path(results_root) / self.id
+        self.name = clean_name(name) if name is not None else self.id
+        self.root = Path(results_root) / self.name
         if clean and self.root.exists():
-            shutil.rmtree(self.root)  # same input -> same folder: start from a clean copy
+            shutil.rmtree(self.root)  # an existing folder with this name is replaced by the new run
         self.root.mkdir(parents=True, exist_ok=True)
         self.index: dict[str, list] = {k: [] for k in TOPICS}
         self.index["."] = []
         self.input_file = input_file
         self.file(".", "inputs_used.py", "all inputs of this run (defaults applied); re-run with "
                                          "python run.py <this file>").write_text(
-            spec_to_python(spec, f"Inputs used for run {self.id}."))
+            spec_to_python(spec, f"Inputs used for simulation {self.name} (run id {self.id})."))
 
     def dir(self, topic: str) -> Path:
         d = self.root if topic == "." else self.root / TOPICS[topic][0]
@@ -139,7 +167,7 @@ class RunFolder:
 
     def write_index(self, title: str):
         """README.txt: what is in each folder and file."""
-        lines = [title, "=" * len(title), "", f"Run id: {self.id}"]
+        lines = [title, "=" * len(title), "", f"Simulation: {self.name}", f"Run id: {self.id}"]
         if self.input_file:
             lines.append(f"Input file: {self.input_file}")
         lines += ["", "Start with summary.txt (key results) or report/report.html (everything, with figures).",
@@ -160,6 +188,7 @@ class RunFolder:
     def write_manifest(self, version: str, extra: dict | None = None):
         files = sorted([r for lst in self.index.values() for r, _ in lst] + ["README.txt", "manifest.json"])
         data = {
+            "simulation_name": self.name,
             "run_id": self.id,
             "input_sha256": input_hash(self.spec),
             "input_file": self.input_file,

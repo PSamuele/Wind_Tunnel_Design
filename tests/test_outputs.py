@@ -1,9 +1,10 @@
+import json
 from pathlib import Path
 
 import pytest
 
 from windtunnel.config import TunnelSpec, load_spec, spec_from_dict, spec_to_python, spec_to_toml
-from windtunnel.outputs import RunFolder, run_id, split_label, summary_text
+from windtunnel.outputs import RunFolder, clean_name, run_id, split_label, summary_text
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -62,3 +63,27 @@ def test_summary_text():
     assert split_label("Throat diameter [mm]") == ("Throat diameter", "mm")
     txt = summary_text("T", {"Group": {"Throat diameter [mm]": 115.47}, "Warnings": []})
     assert "Throat diameter" in txt and "115.47 mm" in txt and "(none)" in txt
+
+
+@pytest.mark.parametrize("raw, name", [
+    ("mach2_baseline", "mach2_baseline"), ("Mach 2 test", "Mach_2_test"), ("  run   3  ", "run_3"),
+    ("case_01", "case_01"),
+])
+def test_clean_name(raw, name):
+    assert clean_name(raw) == name
+
+
+@pytest.mark.parametrize("raw", ["", "   ", "mach-2", "a/b", "run.1", "test?", "caffè", "CON", "nul", "x" * 101])
+def test_clean_name_rejects(raw):
+    with pytest.raises(ValueError):
+        clean_name(raw)
+
+
+def test_named_run_folder(tmp_path):
+    rf = RunFolder(TunnelSpec(), tmp_path / "results", name="my run")
+    assert rf.root == tmp_path / "results" / "my_run"
+    assert rf.id == run_id(TunnelSpec())
+    rf.write_manifest("test")
+    manifest = json.loads((rf.root / "manifest.json").read_text())
+    assert manifest["simulation_name"] == "my_run" and manifest["run_id"] == rf.id
+
